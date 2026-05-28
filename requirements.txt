@@ -1,0 +1,2 @@
+# No third-party dependencies are required.
+# The exporter ships with a tiny local prometheus_client shim.

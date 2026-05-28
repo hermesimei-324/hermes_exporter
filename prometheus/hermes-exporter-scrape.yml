@@ -1,0 +1,5 @@
+- job_name: hermes_exporter
+  scrape_interval: 15s
+  static_configs:
+    - targets:
+        - 127.0.0.1:9209

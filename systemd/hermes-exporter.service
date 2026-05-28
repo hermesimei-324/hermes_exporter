@@ -1,0 +1,21 @@
+[Unit]
+Description=Hermes Exporter for Prometheus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/hermes_exporter
+Environment=HERMES_BASE_URL=http://127.0.0.1:9119
+Environment=HERMES_EXPORTER_HOST=0.0.0.0
+Environment=HERMES_EXPORTER_PORT=9209
+Environment=HERMES_EXPORTER_TEXTFILE_PATH=/home/yen/monitoring/node-exporter-textfile/hermes_exporter.prom
+Environment=HERMES_EXPORTER_INTERVAL=15
+Environment=HERMES_EXPORTER_TIMEOUT=5
+ExecStart=/usr/bin/env python3 %h/hermes_exporter/hermes_exporter.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
