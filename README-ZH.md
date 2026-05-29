@@ -21,6 +21,8 @@
 - `main.go`
 - `go.mod`
 - `go.sum`
+- `LICENSE`
+- `CHANGELOG.md`
 - `systemd/hermes-exporter.service`
 - `prometheus/hermes-exporter-scrape.yml`
 - `dashboards/hermes-exporter-overview.json`
