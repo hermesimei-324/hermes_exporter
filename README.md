@@ -20,7 +20,10 @@ It pulls status and usage data from the Hermes Dashboard API and exposes `/metri
 
 ## Project Files
 
-- `main.go`
+- `main.go` (entrypoint)
+- `common.go` (shared types/helpers)
+- `client.go` (Hermes dashboard API client)
+- `exporter.go` (Prometheus exporter logic)
 - `go.mod`
 - `go.sum`
 - `LICENSE`

@@ -18,7 +18,10 @@
 
 ## 專案檔案
 
-- `main.go`
+- `main.go`（entrypoint）
+- `common.go`（共享型別／工具函式）
+- `client.go`（Hermes dashboard API client）
+- `exporter.go`（Prometheus exporter 主邏輯）
 - `go.mod`
 - `go.sum`
 - `LICENSE`
