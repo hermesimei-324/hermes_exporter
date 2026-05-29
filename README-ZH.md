@@ -18,10 +18,11 @@
 
 ## 專案檔案
 
-- `main.go`（entrypoint）
-- `common.go`（共享型別／工具函式）
-- `client.go`（Hermes dashboard API client）
-- `exporter.go`（Prometheus exporter 主邏輯）
+- `cmd/hermes_exporter/main.go`（entrypoint）
+- `internal/hermes/common.go`（共享型別／工具函式）
+- `internal/hermes/client.go`（Hermes dashboard API client）
+- `internal/hermes/exporter.go`（Prometheus exporter 主邏輯）
+- `internal/hermes/exporter_test.go`
 - `go.mod`
 - `go.sum`
 - `LICENSE`
@@ -36,7 +37,7 @@
 
 ```bash
 cd ~/hermes_exporter
-go build -o hermes_exporter .
+go build -o hermes_exporter ./cmd/hermes_exporter
 ```
 
 如果你想先跑測試：

@@ -20,10 +20,11 @@ It pulls status and usage data from the Hermes Dashboard API and exposes `/metri
 
 ## Project Files
 
-- `main.go` (entrypoint)
-- `common.go` (shared types/helpers)
-- `client.go` (Hermes dashboard API client)
-- `exporter.go` (Prometheus exporter logic)
+- `cmd/hermes_exporter/main.go` (entrypoint)
+- `internal/hermes/common.go` (shared types/helpers)
+- `internal/hermes/client.go` (Hermes dashboard API client)
+- `internal/hermes/exporter.go` (Prometheus exporter logic)
+- `internal/hermes/exporter_test.go`
 - `go.mod`
 - `go.sum`
 - `LICENSE`
@@ -31,14 +32,13 @@ It pulls status and usage data from the Hermes Dashboard API and exposes `/metri
 - `systemd/hermes-exporter.service`
 - `prometheus/hermes-exporter-scrape.yml`
 - `dashboards/hermes-exporter-overview.json`
-
 ## Installation
 
 Build the exporter binary with Go:
 
 ```bash
 cd ~/hermes_exporter
-go build -o hermes_exporter .
+go build -o hermes_exporter ./cmd/hermes_exporter
 ```
 
 If you want to run the tests first:
