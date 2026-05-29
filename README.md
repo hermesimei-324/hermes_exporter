@@ -1,6 +1,7 @@
 # hermes_exporter
 
-一個獨立於 Hermes Agent 原始碼之外的 Prometheus exporter，預設只綁定 `127.0.0.1:9209`，從 Hermes Dashboard API 拉取狀態並輸出 `/metrics`。
+一個獨立於 Hermes Agent 原始碼之外的 Prometheus exporter。
+它會從 Hermes Dashboard API 拉取狀態，並輸出 `/metrics` 供 Prometheus/Grafana 使用。
 
 ## 功能
 
@@ -8,7 +9,7 @@
 - 對外提供 `GET /metrics`
 - 預設監聽 `127.0.0.1:9209`
 - 預設讀取 `http://127.0.0.1:9119`
-- 先支援：
+- 支援的資料來源：
   - `/api/status`
   - `/api/cron/jobs`
   - `/api/analytics/usage`（存在時才解析 token / cost / session metrics）
@@ -21,6 +22,7 @@
 - `requirements.txt`
 - `systemd/hermes-exporter.service`
 - `prometheus/hermes-exporter-scrape.yml`
+- `dashboards/hermes-exporter-overview.json`
 
 ## 安裝
 
@@ -69,7 +71,33 @@ systemctl --user status hermes-exporter.service --no-pager -n 50
     - targets: ['127.0.0.1:9209']
 ```
 
-如果 Prometheus 不在同一台主機，請改成 exporter 實際可達的 host:port，但仍建議 exporter 本身只綁 `127.0.0.1`，再由本機 Prometheus scrape。
+如果 Prometheus 不在同一台主機，請改成 exporter 實際可達的 host:port。通常仍建議 exporter 只綁 `127.0.0.1`，再由本機 Prometheus scrape。
+
+## Grafana Dashboard JSON
+
+本 repo 也附上可直接匯入的 dashboard：
+
+- `dashboards/hermes-exporter-overview.json`
+
+### 匯入方式 1：Grafana 直接匯入
+
+1. 打開 Grafana
+2. 到 **Dashboards → New → Import**
+3. 上傳 `dashboards/hermes-exporter-overview.json`
+4. 選擇 Prometheus datasource
+5. 匯入後就能看到 **Hermes Exporter Overview**
+
+### 匯入方式 2：Provisioning
+
+如果你是用檔案 provisioning，直接把這個 JSON 放進 Grafana 的 dashboards 目錄即可。
+
+這份 dashboard 主要包含：
+
+- Prometheus / Node Exporter 狀態
+- Hermes Dashboard 狀態
+- 主要 usage / cost / session 統計
+- Cron Timing table
+- Model token usage / top models 圖表
 
 ## 測試方式
 
@@ -82,7 +110,11 @@ curl -fsS http://127.0.0.1:9119/api/status | python3 -m json.tool
 ### 2) 啟動 exporter
 
 ```bash
-HERMES_BASE_URL=http://127.0.0.1:9119     HERMES_EXPORTER_PORT=9209     HERMES_EXPORTER_INTERVAL=15     HERMES_EXPORTER_TIMEOUT=5     python3 hermes_exporter.py
+HERMES_BASE_URL=http://127.0.0.1:9119 \
+HERMES_EXPORTER_PORT=9209 \
+HERMES_EXPORTER_INTERVAL=15 \
+HERMES_EXPORTER_TIMEOUT=5 \
+python3 hermes_exporter.py
 ```
 
 ### 3) 讀取 metrics
