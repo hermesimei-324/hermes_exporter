@@ -24,6 +24,19 @@ func TestHelpers(t *testing.T) {
 func TestPollAndExposeMetrics(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
+	oldGrafana := discoverGrafanaVersionInfo
+	oldMacOS := discoverMacOSVersionInfo
+	t.Cleanup(func() {
+		discoverGrafanaVersionInfo = oldGrafana
+		discoverMacOSVersionInfo = oldMacOS
+	})
+	discoverGrafanaVersionInfo = func() map[string]string {
+		return map[string]string{"version": "13.0.1-0", "commit": "Homebrew"}
+	}
+	discoverMacOSVersionInfo = func() map[string]string {
+		return map[string]string{"product_version": "26.5", "build_version": "25F71", "machine": "arm64"}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "<html><script>window.__HERMES_SESSION_TOKEN__='token-123'</script></html>")
@@ -61,6 +74,8 @@ func TestPollAndExposeMetrics(t *testing.T) {
 		"hermes_dashboard_usage_tokens_total{kind=\"input\"} 10",
 		"hermes_dashboard_usage_cost_total{currency=\"usd\",kind=\"total\"} 1.25",
 		"hermes_dashboard_usage_sessions_total{kind=\"active\"} 3",
+		"hermes_grafana_version_info{commit=\"Homebrew\",version=\"13.0.1-0\"} 1",
+		"hermes_macos_version_info{build_version=\"25F71\",machine=\"arm64\",product_version=\"26.5\"} 1",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("metrics output missing %q\n%s", want, body)

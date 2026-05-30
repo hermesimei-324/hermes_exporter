@@ -10,8 +10,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -41,6 +43,8 @@ type Exporter struct {
 	endpointStatus      *prometheus.GaugeVec
 	endpointLastSuccess *prometheus.GaugeVec
 	dashboardVersion    *prometheus.GaugeVec
+	grafanaVersion      *prometheus.GaugeVec
+	macOSVersion        *prometheus.GaugeVec
 	gatewayRunning      prometheus.Gauge
 	gatewayPID          prometheus.Gauge
 	activeSessions      prometheus.Gauge
@@ -83,6 +87,8 @@ func (e *Exporter) buildMetrics() {
 	e.endpointLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_dashboard_endpoint_last_success_timestamp_seconds", Help: "Unix timestamp of the last successful response for a Hermes dashboard endpoint."}, []string{"endpoint"})
 
 	e.dashboardVersion = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_dashboard_version_info", Help: "Hermes dashboard version metadata."}, []string{"version", "release_date"})
+	e.grafanaVersion = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_grafana_version_info", Help: "Grafana version metadata discovered from the local Grafana API."}, []string{"version", "commit"})
+	e.macOSVersion = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_macos_version_info", Help: "macOS version metadata discovered locally."}, []string{"product_version", "build_version", "machine"})
 	e.gatewayRunning = prometheus.NewGauge(prometheus.GaugeOpts{Name: "hermes_dashboard_gateway_running", Help: "Whether the Hermes gateway is running."})
 	e.gatewayPID = prometheus.NewGauge(prometheus.GaugeOpts{Name: "hermes_dashboard_gateway_pid", Help: "Hermes gateway PID when available."})
 	e.activeSessions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "hermes_dashboard_active_sessions", Help: "Active Hermes sessions reported by the dashboard."})
@@ -111,6 +117,8 @@ func (e *Exporter) buildMetrics() {
 		e.endpointStatus,
 		e.endpointLastSuccess,
 		e.dashboardVersion,
+		e.grafanaVersion,
+		e.macOSVersion,
 		e.gatewayRunning,
 		e.gatewayPID,
 		e.activeSessions,
@@ -216,6 +224,8 @@ func (e *Exporter) ApplySnapshot(snapshot *Snapshot) {
 	e.endpointStatus.Reset()
 	e.endpointLastSuccess.Reset()
 	e.dashboardVersion.Reset()
+	e.grafanaVersion.Reset()
+	e.macOSVersion.Reset()
 	e.platformConnected.Reset()
 	e.cronJobsByState.Reset()
 	e.cronJobInfo.Reset()
@@ -246,6 +256,32 @@ func (e *Exporter) ApplySnapshot(snapshot *Snapshot) {
 			releaseDate = "unknown"
 		}
 		e.dashboardVersion.WithLabelValues(version, releaseDate).Set(1)
+	}
+	if len(snapshot.GrafanaVersionInfo) > 0 {
+		version := snapshot.GrafanaVersionInfo["version"]
+		if version == "" {
+			version = "unknown"
+		}
+		commit := snapshot.GrafanaVersionInfo["commit"]
+		if commit == "" {
+			commit = "unknown"
+		}
+		e.grafanaVersion.WithLabelValues(version, commit).Set(1)
+	}
+	if len(snapshot.MacOSVersionInfo) > 0 {
+		productVersion := snapshot.MacOSVersionInfo["product_version"]
+		if productVersion == "" {
+			productVersion = "unknown"
+		}
+		buildVersion := snapshot.MacOSVersionInfo["build_version"]
+		if buildVersion == "" {
+			buildVersion = "unknown"
+		}
+		machine := snapshot.MacOSVersionInfo["machine"]
+		if machine == "" {
+			machine = "unknown"
+		}
+		e.macOSVersion.WithLabelValues(productVersion, buildVersion, machine).Set(1)
 	}
 
 	e.gatewayRunning.Set(snapshot.GatewayRunning)
@@ -398,6 +434,8 @@ func (e *Exporter) PollOnce() (*Snapshot, error) {
 	if data, ok := statusPayload.(map[string]any); ok {
 		e.parseStatusPayload(snapshot, data)
 	}
+	snapshot.GrafanaVersionInfo = discoverGrafanaVersionInfo()
+	snapshot.MacOSVersionInfo = discoverMacOSVersionInfo()
 	cronJobs := e.loadCronJobsFromFile()
 	if cronPayload != nil {
 		cronJobs = e.mergeCronJobs(cronJobs, cronPayload)
@@ -410,6 +448,68 @@ func (e *Exporter) PollOnce() (*Snapshot, error) {
 	snapshot.PollSuccess = 1
 	snapshot.PollTimestamp = float64(now.Unix())
 	return snapshot, nil
+}
+
+var discoverGrafanaVersionInfo = defaultDiscoverGrafanaVersionInfo
+var discoverMacOSVersionInfo = defaultDiscoverMacOSVersionInfo
+
+func defaultDiscoverGrafanaVersionInfo() map[string]string {
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:3000/api/health", nil)
+	if err != nil {
+		return map[string]string{"version": "unknown", "commit": "unknown"}
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return map[string]string{"version": "unknown", "commit": "unknown"}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return map[string]string{"version": "unknown", "commit": "unknown"}
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return map[string]string{"version": "unknown", "commit": "unknown"}
+	}
+	version := strings.TrimSpace(fmt.Sprint(payload["version"]))
+	if version == "" {
+		version = "unknown"
+	}
+	commit := strings.TrimSpace(fmt.Sprint(payload["commit"]))
+	if commit == "" {
+		commit = "unknown"
+	}
+	return map[string]string{"version": version, "commit": commit}
+}
+
+func defaultDiscoverMacOSVersionInfo() map[string]string {
+	productVersion := commandOutput("sw_vers", "-productVersion")
+	if productVersion == "" {
+		productVersion = "unknown"
+	}
+	buildVersion := commandOutput("sw_vers", "-buildVersion")
+	if buildVersion == "" {
+		buildVersion = "unknown"
+	}
+	machine := runtime.GOARCH
+	if machine == "" {
+		machine = "unknown"
+	}
+	return map[string]string{
+		"product_version": productVersion,
+		"build_version":   buildVersion,
+		"machine":         machine,
+	}
+}
+
+func commandOutput(name string, args ...string) string {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (e *Exporter) parseStatusPayload(snapshot *Snapshot, data map[string]any) {

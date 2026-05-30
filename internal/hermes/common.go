@@ -94,6 +94,8 @@ type Snapshot struct {
 	EndpointStatus      map[string]float64
 	EndpointLastSuccess map[string]float64
 	VersionInfo         map[string]string
+	GrafanaVersionInfo  map[string]string
+	MacOSVersionInfo    map[string]string
 	GatewayRunning      float64
 	GatewayPID          float64
 	ActiveSessions      float64
@@ -117,6 +119,8 @@ func newSnapshot() *Snapshot {
 		EndpointStatus:      map[string]float64{},
 		EndpointLastSuccess: map[string]float64{},
 		VersionInfo:         map[string]string{},
+		GrafanaVersionInfo:  map[string]string{},
+		MacOSVersionInfo:    map[string]string{},
 		PlatformConnected:   map[string]float64{},
 		CronJobsByState:     map[string]float64{},
 		CronJobs:            []map[string]any{},
