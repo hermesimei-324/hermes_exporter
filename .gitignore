@@ -1,5 +1,5 @@
 # Go build outputs
-hermes_exporter
+/hermes_exporter
 *.test
 bin/
 
