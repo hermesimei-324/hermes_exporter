@@ -54,6 +54,7 @@ type Exporter struct {
 	cronJobsTotal       prometheus.Gauge
 	cronJobsByState     *prometheus.GaugeVec
 	cronJobInfo         *prometheus.GaugeVec
+	cronJobRunInfo      *prometheus.GaugeVec
 	cronJobNextRunTS    *prometheus.GaugeVec
 	cronJobLastRunTS    *prometheus.GaugeVec
 	cronJobSecondsUntil *prometheus.GaugeVec
@@ -99,6 +100,7 @@ func (e *Exporter) buildMetrics() {
 	e.cronJobsTotal = prometheus.NewGauge(prometheus.GaugeOpts{Name: "hermes_dashboard_cron_jobs_total", Help: "Total Hermes cron jobs reported by the dashboard."})
 	e.cronJobsByState = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_dashboard_cron_jobs_by_state", Help: "Hermes cron jobs grouped by state/status."}, []string{"state"})
 	e.cronJobInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_cron_job_info", Help: "Hermes cron job metadata."}, []string{"job_id", "name", "state", "schedule", "schedule_kind", "next_run_at", "last_run_at", "last_status"})
+	e.cronJobRunInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_cron_job_run_timestamp_seconds", Help: "Unix timestamp for each recorded Hermes cron job run."}, []string{"job_id", "name", "run_at", "status", "mode"})
 	e.cronJobNextRunTS = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_cron_job_next_run_timestamp_seconds", Help: "Unix timestamp for the next scheduled run of a Hermes cron job."}, []string{"job_id", "name"})
 	e.cronJobLastRunTS = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_cron_job_last_run_timestamp_seconds", Help: "Unix timestamp for the last run of a Hermes cron job."}, []string{"job_id", "name"})
 	e.cronJobSecondsUntil = prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "hermes_cron_job_seconds_until_next_run", Help: "Seconds until the next scheduled run of a Hermes cron job."}, []string{"job_id", "name"})
@@ -128,6 +130,7 @@ func (e *Exporter) buildMetrics() {
 		e.cronJobsTotal,
 		e.cronJobsByState,
 		e.cronJobInfo,
+		e.cronJobRunInfo,
 		e.cronJobNextRunTS,
 		e.cronJobLastRunTS,
 		e.cronJobSecondsUntil,
@@ -322,6 +325,17 @@ func (e *Exporter) ApplySnapshot(snapshot *Snapshot) {
 			e.cronJobLastRunAge.WithLabelValues(str(job["job_id"]), str(job["name"])).Set(v)
 		}
 	}
+	for _, run := range snapshot.CronRuns {
+		if v, ok := run["run_ts"].(float64); ok {
+			e.cronJobRunInfo.WithLabelValues(
+				str(run["job_id"]),
+				str(run["name"]),
+				str(run["run_at"]),
+				str(run["status"]),
+				str(run["mode"]),
+			).Set(v)
+		}
+	}
 
 	for kind, value := range snapshot.UsageTokens {
 		e.usageTokens.WithLabelValues(kind).Set(value)
@@ -441,6 +455,7 @@ func (e *Exporter) PollOnce() (*Snapshot, error) {
 		cronJobs = e.mergeCronJobs(cronJobs, cronPayload)
 	}
 	e.parseCronPayload(snapshot, cronJobs)
+	snapshot.CronRuns = e.loadCronRunsFromFiles()
 	if usagePayload != nil {
 		e.parseUsagePayload(snapshot, usagePayload)
 	}
@@ -568,6 +583,121 @@ func (e *Exporter) loadCronJobsFromFile() []map[string]any {
 		}
 	}
 	return toJobSlice(jobs)
+}
+
+func (e *Exporter) loadCronRunsFromFiles() []map[string]any {
+	root := filepath.Join(os.Getenv("HOME"), ".hermes", "cron", "output")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var runs []map[string]any
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		jobID := entry.Name()
+		jobDir := filepath.Join(root, jobID)
+		files, err := os.ReadDir(jobDir)
+		if err != nil {
+			continue
+		}
+		for _, file := range files {
+			if file.IsDir() || !strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
+				continue
+			}
+			fullPath := filepath.Join(jobDir, file.Name())
+			b, err := os.ReadFile(fullPath)
+			if err != nil {
+				continue
+			}
+			run := parseCronRunOutput(jobID, file.Name(), string(b))
+			if run != nil {
+				runs = append(runs, run)
+			}
+		}
+	}
+	sort.SliceStable(runs, func(i, j int) bool {
+		return runs[i]["run_ts"].(float64) > runs[j]["run_ts"].(float64)
+	})
+	return runs
+}
+
+func parseCronRunOutput(defaultJobID, filename, content string) map[string]any {
+	var jobName, jobID, runAt, mode, status string
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		switch {
+		case strings.HasPrefix(line, "# Cron Job:"):
+			jobName = strings.TrimSpace(strings.TrimPrefix(line, "# Cron Job:"))
+		case strings.HasPrefix(line, "**Job ID:**"):
+			jobID = strings.TrimSpace(strings.TrimPrefix(line, "**Job ID:**"))
+		case strings.HasPrefix(line, "**Run Time:**"):
+			runAt = strings.TrimSpace(strings.TrimPrefix(line, "**Run Time:**"))
+		case strings.HasPrefix(line, "**Mode:**"):
+			mode = strings.TrimSpace(strings.TrimPrefix(line, "**Mode:**"))
+		case strings.HasPrefix(line, "**Status:**"):
+			status = strings.TrimSpace(strings.TrimPrefix(line, "**Status:**"))
+		}
+	}
+	if jobID == "" {
+		jobID = defaultJobID
+	}
+	if jobName == "" {
+		jobName = jobID
+	}
+	if runAt == "" {
+		stem := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if ts, err := time.ParseInLocation("2006-01-02_15-04-05", stem, time.Local); err == nil {
+			runAt = ts.Format("2006-01-02 15:04:05")
+		}
+	}
+	if runAt == "" {
+		return nil
+	}
+	parsed := parseCronRunTime(runAt)
+	if parsed == nil {
+		return nil
+	}
+	if mode == "" {
+		mode = "unknown"
+	}
+	if status == "" {
+		status = "unknown"
+	}
+	return map[string]any{
+		"job_id":  jobID,
+		"name":    jobName,
+		"run_at":  runAt,
+		"status":  status,
+		"mode":    mode,
+		"run_ts":  float64(parsed.Unix()),
+	}
+}
+
+func parseCronRunTime(value string) *time.Time {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+	}
+	for _, layout := range layouts {
+		if dt, err := time.Parse(layout, text); err == nil {
+			if dt.Location() == time.Local {
+				dt = dt.UTC()
+			}
+			return &dt
+		}
+		if dt, err := time.ParseInLocation(layout, text, time.Local); err == nil {
+			return &dt
+		}
+	}
+	return nil
 }
 
 func toJobSlice(v any) []map[string]any {

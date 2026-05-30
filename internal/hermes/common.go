@@ -105,6 +105,7 @@ type Snapshot struct {
 	CronJobsTotal       float64
 	CronJobsByState     map[string]float64
 	CronJobs            []map[string]any
+	CronRuns            []map[string]any
 	UsageTokens         map[string]float64
 	UsageCost           map[usageCostKey]float64
 	UsageSessions       map[string]float64
@@ -124,6 +125,7 @@ func newSnapshot() *Snapshot {
 		PlatformConnected:   map[string]float64{},
 		CronJobsByState:     map[string]float64{},
 		CronJobs:            []map[string]any{},
+		CronRuns:            []map[string]any{},
 		UsageTokens:         map[string]float64{},
 		UsageCost:           map[usageCostKey]float64{},
 		UsageSessions:       map[string]float64{},
